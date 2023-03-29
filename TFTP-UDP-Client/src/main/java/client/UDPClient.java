@@ -5,7 +5,7 @@ import java.net.*;
 import java.nio.ByteBuffer;
 
 public class UDPClient {
-    private static final int TFTP_PORT = 9222; // TFTP port
+    private static final int TFTP_PORT = 9222;// TFTP port
     private static final String DEFAULT_ADDRESS = "127.0.0.1"; // Default server address (localhost)
     private static final int TIMEOUT = 10000; // Socket timeout
 
@@ -36,14 +36,19 @@ public class UDPClient {
             } else if ("2".equals(userInput)) {
                 System.out.println("Enter the file name to retrieve:");
                 String fileName = stdIn.readLine();
-                retrieveFile(socket, serverAddress, portNumber, fileName);
+                TFTPUtil.retrieveFile(socket, serverAddress, portNumber, fileName);
             } else {
                 System.out.println("Invalid option. Exiting...");
             }
         }
     }
 
-    private static void sendFile(DatagramSocket socket, InetAddress serverAddress, int portNumber, String fileName) {
+    private static void sendFile(DatagramSocket socket, InetAddress serverAddress, int portNumber, String fileName) throws FileNotFoundException {
+        // If the specified file does not exist then the code below will output a "File not found" error
+        File file = new File(fileName);
+        if (!file.exists()) {
+            throw new FileNotFoundException("File not found: " + fileName);
+        }
         try {
             DatagramPacket sendPacket = TFTPUtil.createWriteRequestPacket(serverAddress, portNumber, fileName);
             socket.send(sendPacket); // Sends packets to specific serverAddress and portNumber
@@ -60,28 +65,11 @@ public class UDPClient {
             short receivedBlockNumber = ByteBuffer.wrap(receivePacket.getData()).getShort(2);
             if (receivedOpcode == TFTPUtil.OP_ACK && receivedBlockNumber == 0) {
                 TFTPUtil.sendFile(socket, serverAddress, portNumber, fileName);
-            } else {
-                System.out.println("Error: expected initial ACK packet with block number 0");
-            }
+            }// else {
+             //    System.out.println("Error: expected initial ACK packet with block number 0");
+             // }
         } catch (IOException e) {
             System.out.println("Error sending file: " + e.getMessage());
-        }
-    }
-
-    private static void retrieveFile(DatagramSocket socket, InetAddress serverAddress, int portNumber, String fileName) {
-        try {
-            DatagramPacket sendPacket = TFTPUtil.createReadRequestPacket(serverAddress, portNumber, fileName);
-            socket.send(sendPacket);
-            System.out.println("Sent packet to " + serverAddress + ":" + portNumber);
-
-            TFTPUtil.receiveFile(socket, serverAddress, portNumber, fileName);
-
-            byte[] buffer = new byte[516];
-            DatagramPacket receivePacket = new DatagramPacket(buffer, buffer.length);
-            socket.receive(receivePacket);
-            System.out.println("Received packet from " + receivePacket.getAddress() + ":" + receivePacket.getPort());
-        } catch (IOException e) {
-            System.out.println("Error retrieving file: " + e.getMessage());
         }
     }
 }

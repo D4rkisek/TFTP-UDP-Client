@@ -5,40 +5,28 @@ import java.net.*;
 import java.nio.ByteBuffer;
 
 public class TFTPUtil {
-    // Constants for TFTP opcodes and error codes
-    public static final short OP_RRQ = 1;
-    public static final short OP_WRQ = 2;
-    public static final short OP_DATA = 3;
-    public static final short OP_ACK = 4;
-    public static final short OP_ERROR = 5;
+    // Constants for TFTP opcodes
+    public static final short OP_RRQ = 1; // Sending a file
+    public static final short OP_WRQ = 2; // Retrieving a file
+    public static final short OP_DATA = 3; // Data packet
+    public static final short OP_ACK = 4; // Acknowledgements
 
-    public static final short ERR_FILE_NOT_FOUND = 1;
+    public static DatagramPacket createWriteRequestPacket(InetAddress serverAddress, int portNumber, String fileName) {
+        byte[] fileNameBytes = fileName.getBytes();
+        byte[] modeBytes = "octet".getBytes();
+        byte[] requestPacket = new byte[2 + fileNameBytes.length + 1 + modeBytes.length + 1];
 
-    // Helper methods for reading and writing data packets, as well as error handling
-    public static DatagramPacket createReadRequestPacket(InetAddress serverAddress, int port, String fileName) {
-        return createRequestPacket(serverAddress, port, fileName, OP_RRQ);
-    }
+        // Set the opcode to WRQ (2)
+        requestPacket[0] = 0;
+        requestPacket[1] = 2;
 
-    public static DatagramPacket createWriteRequestPacket(InetAddress serverAddress, int port, String fileName) {
-        return createRequestPacket(serverAddress, port, fileName, OP_WRQ);
-    }
+        // Set the filename and mode
+        System.arraycopy(fileNameBytes, 0, requestPacket, 2, fileNameBytes.length);
+        requestPacket[2 + fileNameBytes.length] = 0;
+        System.arraycopy(modeBytes, 0, requestPacket, 2 + fileNameBytes.length + 1, modeBytes.length);
+        requestPacket[2 + fileNameBytes.length + 1 + modeBytes.length] = 0;
 
-    private static DatagramPacket createRequestPacket(InetAddress serverAddress, int port, String fileName, short opcode) {
-        ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
-        DataOutputStream dataOutputStream = new DataOutputStream(byteArrayOutputStream);
-
-        try {
-            dataOutputStream.writeShort(opcode);
-            dataOutputStream.writeBytes(fileName);
-            dataOutputStream.writeByte(0);
-            dataOutputStream.writeBytes("octet");
-            dataOutputStream.writeByte(0);
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
-
-        byte[] requestData = byteArrayOutputStream.toByteArray();
-        return new DatagramPacket(requestData, requestData.length, serverAddress, port);
+        return new DatagramPacket(requestPacket, requestPacket.length, serverAddress, portNumber);
     }
 
     public static DatagramPacket createDataPacket(InetAddress serverAddress, int port, short blockNumber, byte[] data, int dataLength) {
@@ -59,35 +47,14 @@ public class TFTPUtil {
 
     public static DatagramPacket createAckPacket(InetAddress serverAddress, int port, short blockNumber) {
         byte[] ackData = new byte[4];
-        ByteBuffer.wrap(ackData).putShort(OP_ACK).putShort(blockNumber);
+        ByteBuffer.wrap(ackData).putShort((short) 4).putShort(blockNumber);
         return new DatagramPacket(ackData, ackData.length, serverAddress, port);
-    }
-
-    public static DatagramPacket createErrorPacket(InetAddress serverAddress, int port, short errorCode, String errorMessage) {
-        ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
-        DataOutputStream dataOutputStream = new DataOutputStream(byteArrayOutputStream);
-
-        try {
-            dataOutputStream.writeShort(OP_ERROR);
-            dataOutputStream.writeShort(errorCode);
-            dataOutputStream.writeBytes(errorMessage);
-            dataOutputStream.writeByte(0);
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
-
-        byte[] errorData = byteArrayOutputStream.toByteArray();
-        return new DatagramPacket(errorData, errorData.length, serverAddress, port);
     }
 
     public static void sendFile(DatagramSocket socket, InetAddress serverAddress, int port, String fileName) throws IOException {
         File file = new File(fileName);
-        if (!file.exists()) {
-            throw new FileNotFoundException("File not found: " + fileName);
-        }
-
         try (FileInputStream fileInputStream = new FileInputStream(file)) {
-            short blockNumber = 1;
+            short blockNumber = 0;
             byte[] buffer = new byte[512];
             int bytesRead;
 
@@ -95,50 +62,68 @@ public class TFTPUtil {
                 DatagramPacket dataPacket = createDataPacket(serverAddress, port, blockNumber, buffer, bytesRead);
                 socket.send(dataPacket);
                 System.out.println("Sent data packet with block number: " + blockNumber);
-
-                DatagramPacket ackPacket = new DatagramPacket(new byte[4], 4);
-                socket.receive(ackPacket);
-                short ackBlockNumber = ByteBuffer.wrap(ackPacket.getData()).getShort(2);
-                System.out.println("Received ACK packet with block number: " + ackBlockNumber);
-
-                if (ackBlockNumber != blockNumber) {
-                    throw new IOException("Invalid ACK received");
-                }
-
                 blockNumber++;
             }
         }
     }
 
-    public static void receiveFile(DatagramSocket socket, InetAddress serverAddress, int port, String fileName) throws IOException {
-        try (FileOutputStream fileOutputStream = new FileOutputStream(fileName)) {
-            short expectedBlockNumber = 1;
+    public static void retrieveFile(DatagramSocket socket, InetAddress serverAddress, int portNumber, String fileName) {
+        try {
+            // Creates the request data packet
+            byte[] requestData = new byte[fileName.length() + 2];
+            // Setting the opcode to RRQ (0x0001)
+            requestData[0] = 0;
+            requestData[1] = 1;
+            // Copy the filename into the request data packet
+            System.arraycopy(fileName.getBytes(), 0, requestData, 2, fileName.length());
 
+            // Sends the request data packet to the server
+            DatagramPacket sendPacket = new DatagramPacket(requestData, requestData.length, serverAddress, portNumber);
+            socket.send(sendPacket);
+            System.out.println("Sent packet to " + serverAddress + ":" + portNumber);
+
+            // Receiving the file data from the server
+            byte[] buffer = new byte[516]; //516 bytes large
+            DatagramPacket receivePacket = new DatagramPacket(buffer, buffer.length);
+            FileOutputStream fileOutput = new FileOutputStream(fileName);
+            short blockNumber = 0;
+            int numAcksSent = 0;
             while (true) {
-                DatagramPacket dataPacket = new DatagramPacket(new byte[516], 516);
-                socket.receive(dataPacket);
-                System.out.println("Received data packet with block number: " + expectedBlockNumber);
+                // Waits for a packet to arrive from the server
+                socket.receive(receivePacket);
+                System.out.println("Received packet from " + receivePacket.getAddress() + ":" + receivePacket.getPort());
 
-                short opcode = ByteBuffer.wrap(dataPacket.getData()).getShort();
-                short blockNumber = ByteBuffer.wrap(dataPacket.getData()).getShort(2);
-
-                if (opcode != OP_DATA || blockNumber != expectedBlockNumber) {
-                    throw new IOException("Invalid data packet received");
-                }
-
-                int dataLength = dataPacket.getLength() - 4;
-                fileOutputStream.write(dataPacket.getData(), 4, dataLength);
-
-                DatagramPacket ackPacket = createAckPacket(serverAddress, port, blockNumber);
-                socket.send(ackPacket);
-                System.out.println("Sent ACK packet with block number: " + blockNumber);
-
-                expectedBlockNumber++;
-
-                if (dataLength < 512) {
+                byte[] data = receivePacket.getData();
+                // Checks the opcode to see if this is a data packet (opcode 0x0003)
+                int opcode = ((data[0] << 8) | data[1]) & 0xffff;
+                if (opcode == 3) {
+                    // Extracts the block number from the data packet
+                    short receivedBlockNumber = (short) (((data[2] << 8) | data[3]) & 0xffff);
+                    if (blockNumber == receivedBlockNumber) {
+                        // Writes the data load to the output file
+                        fileOutput.write(data, 4, receivePacket.getLength() - 4);
+                        System.out.println("Received block " + blockNumber);
+                        // Creates and send an acknowledgement packet back to the server
+                        DatagramPacket ackPacket = createAckPacket(serverAddress, portNumber, blockNumber);
+                        socket.send(ackPacket);
+                        System.out.println("Ack packet " + numAcksSent + " sent");
+                        numAcksSent++;
+                        blockNumber++;
+                        // if this is the last packet (less than 516 bytes of data) then breaks the while loop
+                        if (receivePacket.getLength() < 516) {
+                            break;
+                        }
+                    }
+                } else if (opcode == 5) {
+                    // If this is an error packet, prints the error message and stops the loop
+                    System.out.println("Error: " + new String(data, 4, receivePacket.getLength() - 4));
                     break;
                 }
             }
+            // Close the output file stream
+            fileOutput.close();
+        } catch (IOException e) { // Exception handler
+            System.out.println("Error retrieving file: " + e.getMessage());
         }
     }
 
@@ -147,18 +132,4 @@ public class TFTPUtil {
         return ByteBuffer.wrap(data).getShort();
     }
 
-    public static String getFileName(DatagramPacket packet) {
-        byte[] data = packet.getData();
-        int length = packet.getLength();
-        StringBuilder fileName = new StringBuilder();
-        for (int i = 2; i < length; i++) {
-            char c = (char) data[i];
-            if (c == 0) {
-                break;
-            }
-            fileName.append(c);
-        }
-
-        return fileName.toString();
-    }
 }
