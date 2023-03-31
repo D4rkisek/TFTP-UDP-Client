@@ -29,11 +29,13 @@ public class TFTPUtil {
         return new DatagramPacket(requestPacket, requestPacket.length, serverAddress, portNumber);
     }
 
+    // Method for creating DATA packets
     public static DatagramPacket createDataPacket(InetAddress serverAddress, int port, short blockNumber, byte[] data, int dataLength) {
+        // Creates an instance of ByteArrayOutputStream and DataOutputStream to write the data to the byte array
         ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
         DataOutputStream dataOutputStream = new DataOutputStream(byteArrayOutputStream);
 
-        try {
+        try { // OP_DATA = 2 bytes, blockNumber = 2 bytes
             dataOutputStream.writeShort(OP_DATA);
             dataOutputStream.writeShort(blockNumber);
             dataOutputStream.write(data, 0, dataLength);
@@ -43,23 +45,30 @@ public class TFTPUtil {
 
         byte[] dataPacketData = byteArrayOutputStream.toByteArray();
         return new DatagramPacket(dataPacketData, dataPacketData.length, serverAddress, port);
+        // It returns a DatagramPacket with the byte array, its length, server address, and port number
     }
 
+    // Method for creating ACK packets
     public static DatagramPacket createAckPacket(InetAddress serverAddress, int port, short blockNumber) {
-        byte[] ackData = new byte[4];
+        byte[] ackData = new byte[4]; // 4 Bytes size
         ByteBuffer.wrap(ackData).putShort((short) 4).putShort(blockNumber);
         return new DatagramPacket(ackData, ackData.length, serverAddress, port);
+        // It returns a ackData with the byte array, its length, server address, and port number
     }
 
     public static void sendFile(DatagramSocket socket, InetAddress serverAddress, int port, String fileName) throws IOException {
         File file = new File(fileName);
         try (FileInputStream fileInputStream = new FileInputStream(file)) {
-            short blockNumber = 0;
-            byte[] buffer = new byte[512];
+            // Initialisation
+            short blockNumber = 0; // block number to 0
+            byte[] buffer = new byte[516];
             int bytesRead;
 
+            // Reads the file contents into the buffer and continue until the end of the file is reached
             while ((bytesRead = fileInputStream.read(buffer)) != -1) {
+                // Creates a new data packet with the server address, port, block number, buffer, and the number of bytes read
                 DatagramPacket dataPacket = createDataPacket(serverAddress, port, blockNumber, buffer, bytesRead);
+                // Sends packet through the socket
                 socket.send(dataPacket);
                 System.out.println("Sent data packet with block number: " + blockNumber);
                 blockNumber++;
@@ -127,6 +136,7 @@ public class TFTPUtil {
         }
     }
 
+    // Extracts the opcode from a given packet
     public static short getOpcode(DatagramPacket packet) {
         byte[] data = packet.getData();
         return ByteBuffer.wrap(data).getShort();

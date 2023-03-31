@@ -4,10 +4,10 @@ import java.io.*;
 import java.net.*;
 import java.nio.ByteBuffer;
 
-public class UDPClient {
+public class TFTPUDPClient {
     private static final int TFTP_PORT = 9222;// TFTP port
     private static final String DEFAULT_ADDRESS = "127.0.0.1"; // Default server address (localhost)
-    private static final int TIMEOUT = 10000; // Socket timeout
+    private static final int TIMEOUT = 5000; // Socket timeout
 
     public static void main(String[] args) throws IOException {
         String address = DEFAULT_ADDRESS;
@@ -29,11 +29,11 @@ public class UDPClient {
             System.out.println("Enter 1 to send a file or 2 to retrieve a file:");
 
             String userInput = stdIn.readLine();
-            if ("1".equals(userInput)) {
+            if ("1".equals(userInput)) { //WRQ
                 System.out.println("Enter the file name to send:");
                 String fileName = stdIn.readLine();
                 sendFile(socket, serverAddress, portNumber, fileName);
-            } else if ("2".equals(userInput)) {
+            } else if ("2".equals(userInput)) { //RRQ
                 System.out.println("Enter the file name to retrieve:");
                 String fileName = stdIn.readLine();
                 TFTPUtil.retrieveFile(socket, serverAddress, portNumber, fileName);
